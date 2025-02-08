@@ -1,7 +1,7 @@
 {
   "name": "zero-overhead-promise-lock",
-  "version": "1.0.0",
-  "description": "An efficient Promise lock for Node.js projects, ensuring mutually exclusive execution of asynchronous tasks. Key features include gracefully awaiting the completion of all currently executing or pending tasks, making it ideal for robust production applications requiring smooth teardown.",
+  "version": "1.1.0",
+  "description": "An efficient Promise lock for Node.js projects, ensuring mutually exclusive execution of asynchronous tasks. Key features include a backpressure indicator and the ability to gracefully await the completion of all currently executing or pending tasks, making it ideal for robust production applications requiring smooth teardown.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ori88c/zero-overhead-promise-lock.git"
@@ -24,6 +24,8 @@
     "lock-across-event-loops",
     "async-task-lock",
     "task-lock",
+    "backpressure",
+    "backpressure-indicator",
     "graceful-termination",
     "graceful-teardown",
     "graceful-shutdown",
@@ -32,6 +34,8 @@
     "deterministic-termination",
     "check-and-abort",
     "is-available",
+    "throttle",
+    "rate-limiting",
     "nodejs",
     "Node.js",
     "typescript",

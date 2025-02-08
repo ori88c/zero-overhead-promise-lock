@@ -48,6 +48,7 @@ export type AsyncTask<T> = () => Promise<T>;
  */
 export class ZeroOverheadLock<T> {
   private _currentlyExecutingTask: Promise<T> | undefined;
+  private _pendingTasksCount: number = 0;
   
   /**
    * isAvailable
@@ -65,6 +66,40 @@ export class ZeroOverheadLock<T> {
   }
 
   /**
+   * pendingTasksCount
+   * 
+   * Returns the number of tasks that are currently pending execution due to the lock being held.
+   * These tasks are waiting for the lock to become available before they can proceed.
+   * 
+   * ### Monitoring Backpressure
+   * This property is useful for monitoring backpressure and making informed decisions, such as
+   * dynamically adjusting task submission rates or triggering alerts if the backpressure grows
+   * too large. Additionally, this metric can aid in internal resource management within a
+   * containerized environment.
+   * 
+   * ### Real-World Example: A Keyed Lock for Batch Processing of Kafka Messages
+   * Suppose you are consuming a batch of Kafka messages from the same partition concurrently, but
+   * need to ensure sequential processing for messages associated with the same key. For example,
+   * each message may represent an action on a user account, where processing multiple actions
+   * concurrently could lead to race conditions. Kafka experts might suggest increasing the number
+   * of partitions to ensure sequential processing per partition. However, in practice, this approach
+   * can be costly. As a result, it is not uncommon to prefer batch-processing messages from the same
+   * partition rather than increasing the partition count.
+   * To prevent concurrent processing of same-key messages during batch processing, you can use this
+   * lock as a building block for a Keyed Lock, where each **key** is mapped to its own lock instance.
+   * In this case, the key could be the UserID, ensuring that actions on the same user account are
+   * processed sequentially.
+   * When multiple locks exist - each associated with a unique key - the `pendingTasksCount` metric
+   * can help optimize resource usage. Specifically, if a lock’s backpressure reaches 0, it may indicate
+   * that the lock is no longer needed and can be **removed** from the Keyed Lock to free up resources.
+   * 
+   * @returns The number of tasks currently waiting for execution.
+   */
+  public get pendingTasksCount(): number {
+    return this._pendingTasksCount;
+  }
+
+  /**
    * executeExclusive
    * 
    * This method executes the given task in a controlled manner, once the lock is available. 
@@ -77,11 +112,14 @@ export class ZeroOverheadLock<T> {
    * @returns A promise that resolves with the task's return value or rejects with its error.
    */
   public async executeExclusive(criticalTask: AsyncTask<T>): Promise<T> {
+    ++this._pendingTasksCount;
+
     // Wait for availability.
     while (this._currentlyExecutingTask) {
       await this._currentlyExecutingTask;
     }
 
+    --this._pendingTasksCount;
     return this._currentlyExecutingTask = this._handleTaskExecution(criticalTask);
   }
 

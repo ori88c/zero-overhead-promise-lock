@@ -30,36 +30,44 @@ describe('ZeroOverheadLock tests', () => {
     describe('Happy path tests', () => {
         test('executeExclusive: should return the expected value when succeeds', async () => {
             const lock = new zero_overhead_promise_lock_1.ZeroOverheadLock();
+            expect(lock.isAvailable).toBe(true);
+            expect(lock.pendingTasksCount).toBe(0);
             const expectedValue = -295;
             const task = async () => { return expectedValue; };
             const actualValue = await lock.executeExclusive(task);
             expect(actualValue).toBe(expectedValue);
             expect(lock.isAvailable).toBe(true);
+            expect(lock.pendingTasksCount).toBe(0);
         });
         test('waitForAllExistingTasksToComplete: should resolve immediately if no task currently executes', async () => {
             const lock = new zero_overhead_promise_lock_1.ZeroOverheadLock();
             await lock.waitForAllExistingTasksToComplete();
             expect(lock.isAvailable).toBe(true);
+            expect(lock.pendingTasksCount).toBe(0);
         });
-        test('executeExclusive should process only one task at a time, and waitForAllExistingTasksToComplete ' +
+        test('executeExclusive: should process only one task at a time, and waitForAllExistingTasksToComplete ' +
             'should resolve only after *all* the currently pending and processed tasks are completed', async () => {
             const lock = new zero_overhead_promise_lock_1.ZeroOverheadLock();
             const numberOfTasks = 225;
             const taskCompletionCallbacks = [];
             const executeExclusivePromises = [];
+            let expectedBackpressure;
             // Create a burst of tasks, inducing backpressure on the lock.
             for (let ithTask = 0; ithTask < numberOfTasks; ++ithTask) {
                 const jobPromise = new Promise(res => taskCompletionCallbacks[ithTask] = res);
                 const job = () => jobPromise;
                 // Tasks will be executed in the order in which they were registered.
                 executeExclusivePromises[ithTask] = lock.executeExclusive(job);
-                // Trigger the event loop to allow the lock to evaluate if the current task can begin execution.
+                // Trigger the event loop, allowing the lock to evaluate if the current task can begin execution.
                 // Based on this test's configuration, only the first task will be allowed to start.
                 await Promise.race([
                     executeExclusivePromises[ithTask],
                     resolveFast()
                 ]);
                 expect(lock.isAvailable).toBe(false);
+                // Only the first task does not induce backpressure, as it can start immediately.
+                expectedBackpressure = ithTask;
+                expect(lock.pendingTasksCount).toBe(expectedBackpressure);
             }
             let allTasksCompleted = false;
             const waitForCompletionOfAllTasksPromise = (async () => {
@@ -67,10 +75,12 @@ describe('ZeroOverheadLock tests', () => {
                 allTasksCompleted = true;
             })();
             const lastTaskIndex = numberOfTasks - 1;
+            expectedBackpressure = lastTaskIndex;
             for (let ithTask = 0; ithTask < numberOfTasks; ++ithTask) {
                 // At this stage, all tasks are pending for execution, except one which has started.
                 // At this stage, the ithTask has already started its execution.
                 expect(lock.isAvailable).toBe(false);
+                expect(lock.pendingTasksCount).toBe(expectedBackpressure);
                 expect(allTasksCompleted).toBe(false);
                 // Complete the current task.
                 // Note: the order in which tasks start execution corresponds to the order in which
@@ -83,17 +93,24 @@ describe('ZeroOverheadLock tests', () => {
                 }
                 else {
                     await Promise.race([executeExclusivePromises[ithTask], waitForCompletionOfAllTasksPromise]);
+                    --expectedBackpressure;
                 }
             }
             expect(lock.isAvailable).toBe(true);
+            expect(lock.pendingTasksCount).toBe(0);
             expect(allTasksCompleted).toBe(true);
         });
+        /**
+         * Note: While fundamentally different, the technique of multiple promises awaiting
+         * the same shared promise instance is somewhat reminiscent of `std::condition_variable` in C++.
+         * Instead of coordinating multiple threads, this approach coordinates multiple promise instances.
+         */
         test('when _currentlyExecutingTask resolves, its awaiters should be executed according to their ' +
             'order in the Node.js microtasks queue', async () => {
             // This test does not directly assess the lock component. Instead, it verifies the
-            // correctness of the shared promise instance acquire mechanism, ensuring it honors
+            // correctness of the **shared promise instance** acquire mechanism, ensuring it honors
             // the FIFO order of callers requesting the (one and only) execution slot.
-            // In JavaScript, it is common for a caller to create a promise (as the sole owner of
+            // In JavaScript, it is common for a caller to create a promise (as the **sole owner** of
             // this promise instance) and await its resolution. It is less common for multiple promises
             // to await concurrently on the same shared promise instance. In that scenario, a pertinent
             // question arises:
@@ -143,7 +160,7 @@ describe('ZeroOverheadLock tests', () => {
             const lock = new zero_overhead_promise_lock_1.ZeroOverheadLock();
             const expectedError = new Error('mock error');
             const task = async () => { throw expectedError; };
-            expect.assertions(2);
+            expect.assertions(3);
             try {
                 await lock.executeExclusive(task);
             }
@@ -151,6 +168,7 @@ describe('ZeroOverheadLock tests', () => {
                 expect(err).toBe(expectedError);
             }
             expect(lock.isAvailable).toBe(true);
+            expect(lock.pendingTasksCount).toBe(0);
         });
     });
 });

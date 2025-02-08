@@ -25,8 +25,9 @@ If your use case requires a concurrency greater than 1, consider using the semap
 ## Key Features :sparkles:<a id="key-features"></a>
 
 - __Mutual Exclusiveness :lock:__: Ensures the mutually exclusive execution of asynchronous tasks, either to prevent potential race conditions caused by tasks spanning across multiple event-loop iterations, or for performance optimization.
-- __Graceful Termination :hourglass_flowing_sand:__: Await the completion of all currently pending and executing tasks using the `waitForAllExistingTasksToComplete` method. Example use cases include application shutdowns (e.g., `onModuleDestroy` in Nest.js applications) or maintaining a clear state between unit-tests.
+- __Graceful Teardown :hourglass_flowing_sand:__: Await the completion of all currently pending and executing tasks using the `waitForAllExistingTasksToComplete` method. Example use cases include application shutdowns (e.g., `onModuleDestroy` in Nest.js applications) or maintaining a clear state between unit-tests.
 - __Suitable for "check and abort" scenarios__: The `isAvailable` getter indicator enables to skip or abort operations if the lock is currently held by another task.
+- __Backpressure Metric :bar_chart:__: The `pendingTasksCount` getter provides a real-time metric indicating the current backpressure from tasks waiting for the lock to become available. Users can leverage this data to make informed decisions, such as throttling, load balancing, or managing system load. Additionally, this metric can aid in **internal resource management** within a containerized environment. If multiple locks exist - each tied to a unique key - a backpressure value of 0 may indicate that a lock is no longer needed and can be removed temporarily to optimize resource usage.
 - __High Efficiency :gear:__: Leverages the Node.js microtasks queue to serve tasks in FIFO order, eliminating the need for manually managing an explicit queue of pending tasks.
 - __Comprehensive documentation :books:__: The class is thoroughly documented, enabling IDEs to provide helpful tooltips that enhance the coding experience.
 - __Tests :test_tube:__: Fully covered by extensive unit tests.
@@ -51,9 +52,10 @@ If needed, refer to the code documentation for a more comprehensive description 
 
 ## Getter Methods :mag:<a id="getter-methods"></a>
 
-The `ZeroOverheadLock` class provides the following getter method to reflect the current lock's state:
+The `ZeroOverheadLock` class provides the following getter methods to reflect the current lock's state:
 
 * __isAvailable__: Indicates whether the lock is currently available to immediately begin executing a new task. This property is particularly useful in "check and abort" scenarios, where an operation should be **skipped or aborted** if the lock is currently held by another task.
+* __pendingTasksCount__: Returns the number of tasks that are currently pending execution due to the lock being held. These tasks are waiting for the lock to become available before they can proceed.
 
 ## Opt for Atomic Operations When Working Against External Resources :key:<a id="opt-atomic-operations"></a>
 
@@ -153,7 +155,7 @@ export class IntrusionDetectionSystem {
    * This method is well-suited for use in `onModuleDestroy` in Nest.js 
    * applications or similar lifecycle scenarios.
    */
-  public async onDestroy(): Promise<void> {
+  public async onTeardown(): Promise<void> {
     while (!this._accumulationLock.isAvailable) {
       await this._accumulationLock.waitForAllExistingTasksToComplete();
     }
@@ -200,7 +202,7 @@ export class IntrusionDetectionSystem {
    * This method is well-suited for use in `onModuleDestroy` in Nest.js 
    * applications or similar lifecycle scenarios.
    */
-  public async onDestroy(): Promise<void> {
+  public async onTeardown(): Promise<void> {
     while (!this._bulkWriteLock.isAvailable) {
       await this._bulkWriteLock.waitForAllExistingTasksToComplete();
     }
