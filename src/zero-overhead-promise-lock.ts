@@ -23,13 +23,16 @@ export type AsyncTask<T> = () => Promise<T>;
  * The `ZeroOverheadLock` class implements a Promise-lock for Node.js projects, enabling users
  * to ensure the mutually exclusive execution of specified tasks.
  * 
+ * ### Race Conditions: How Are They Possible in Single-Threaded JavaScript?
  * In Node.js, synchronous code blocks - those that do *not* contain an `await` keyword - are
  * guaranteed to execute within a single event-loop iteration. These blocks inherently do not
- * require synchronization, as their execution is mutually exclusive by definition and cannot overlap.
- * In contrast, asynchronous tasks that include at least one `await`, necessarily span across multiple
- * event-loop iterations. Such tasks may require synchronization, when overlapping executions could
- * result in an inconsistent or invalid state.
- * A specific example illustrating this will be provided in the package README.
+ * require synchronization, as their execution is mutually exclusive by definition and cannot
+ * overlap.
+ * In contrast, asynchronous tasks that include at least one `await`, necessarily span across
+ * multiple event-loop iterations. Such tasks may require synchronization, when overlapping
+ * executions could result in an inconsistent or invalid state.
+ * In this regard, JavaScript's single-threaded nature differs inherently from that of
+ * single-threaded C code, for example.
  * 
  * ### Modern API Design
  * Traditional lock APIs require explicit acquire and release steps, adding overhead and
@@ -137,6 +140,12 @@ export class ZeroOverheadLock<T> {
    * The returned promise only accounts for tasks registered at the time this method is called.
    * If this method is being used as part of a graceful shutdown process, the **caller must ensure**
    * that no additional tasks are registered after this method is called.
+   * If there is any uncertainty about new tasks being registered, consider using the following pattern: 
+   * ```ts
+   * while (!lock.isAvailable) {
+   *   await lock.waitForAllExistingTasksToComplete()
+   * }
+   * ```
    *
    * @returns A promise that resolves once all tasks that were pending or executing at the time
    *          of invocation are completed.

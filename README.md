@@ -1,19 +1,14 @@
 <h2 align="middle">zero-overhead-promise-lock</h2>
 
-The `ZeroOverheadLock` class implements a modern Promise-lock for Node.js projects, enabling users to ensure the mutually exclusive execution of specified tasks. Key features include:
+The `ZeroOverheadLock` class implements a modern Promise-lock for Node.js projects, enabling users to ensure the **mutually exclusive execution** of specified asynchronous tasks. Key features include:
 * __Graceful Teardown__: The ability to await the completion of all currently executing or pending tasks, making it ideal for production applications that require smooth and controlled shutdowns.
 * __"Check-and-Abort" Friendly__: The `isAvailable` getter is designed for "check-and-abort" scenarios, enabling operations to be skipped or aborted if the lock is currently held by another task.
-
-Unlike single-threaded C code, the event-loop architecture used in modern JavaScript runtime environments introduces the possibility of race conditions, especially for asynchronous tasks that span multiple event-loop iterations.  
-In Node.js, synchronous code blocks - those that do **not** contain an `await` keyword - are guaranteed to execute within a single event-loop iteration. These blocks inherently do not require synchronization, as their execution is mutually exclusive by definition and cannot overlap.  
-In contrast, asynchronous tasks that include at least one `await`, necessarily span across **multiple event-loop iterations**. Such tasks may require synchronization to prevent overlapping executions that could lead to **race conditions**, resulting in inconsistent or invalid states.
-
-Additionally, locks are sometimes employed **purely for performance optimization**, such as throttling, rather than for preventing race conditions. In such cases, the lock effectively functions as a semaphore with a concurrency of 1.  
-If your use case requires a concurrency greater than 1, consider using the semaphore variant of this package: [zero-backpressure-semaphore-typescript](https://www.npmjs.com/package/zero-backpressure-semaphore-typescript). While semaphores can emulate locks by setting their concurrency to 1, locks provide a more efficient implementation with reduced overhead.
 
 ## Table of Contents
 
 * [Key Features](#key-features)
+* [Race Conditions: How Are They Possible in Single-Threaded JavaScript?](#race-conditions)
+* [Other Use Cases: Beyond Race Condition Prevention](#other-use-cases)
 * [Modern API Design](#modern-api-design)
 * [API](#api)
 * [Getter Methods](#getter-methods)
@@ -34,6 +29,19 @@ If your use case requires a concurrency greater than 1, consider using the semap
 - __No external runtime dependencies__: Only development dependencies are used.
 - __ES2020 Compatibility__: The `tsconfig` target is set to ES2020.
 - TypeScript support.
+
+## Race Conditions: How Are They Possible in Single-Threaded JavaScript? :checkered_flag:<a id="race-conditions"></a>
+
+Unlike single-threaded C code, the event-loop architecture used in modern JavaScript runtime environments introduces the possibility of race conditions, especially for asynchronous tasks that span multiple event-loop iterations.
+
+In Node.js, synchronous code blocks - those that do **not** contain an `await` keyword - are guaranteed to execute within a single event-loop iteration. These blocks inherently do not require synchronization, as their execution is mutually exclusive by definition and cannot overlap.  
+In contrast, asynchronous tasks that include at least one `await`, necessarily span across **multiple event-loop iterations**. Such tasks may require synchronization to prevent overlapping executions that could lead to **race conditions**, resulting in inconsistent or invalid states. Such races occur when event-loop iterations from task A **interleave** with those from task B, each unaware of the other and **potentially acting on an intermediate state**.
+
+## Other Use Cases: Beyond Race Condition Prevention :arrow_right:<a id="other-use-cases"></a>
+
+Additionally, locks are sometimes employed **purely for performance optimization**, such as throttling, rather than for preventing race conditions. In such cases, the lock effectively functions as a semaphore with a concurrency of 1.
+
+If your use case requires a concurrency greater than 1, consider using the semaphore variant of this package: [zero-backpressure-semaphore-typescript](https://www.npmjs.com/package/zero-backpressure-semaphore-typescript). While semaphores can emulate locks by setting their concurrency to 1, locks provide a more efficient implementation with reduced overhead.
 
 ## Modern API Design :rocket:<a id="modern-api-design"></a>
 
