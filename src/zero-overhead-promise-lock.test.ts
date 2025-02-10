@@ -18,6 +18,7 @@
 import { ZeroOverheadLock } from './zero-overhead-promise-lock';
 
 type PromiseResolveCallbackType = (value?: unknown) => void;
+type PromiseRejectCallbackType = (err?: Error) => void;
 
 /**
  * resolveFast
@@ -89,9 +90,8 @@ describe('ZeroOverheadLock tests', () => {
       const lastTaskIndex = numberOfTasks - 1;
       expectedBackpressure = lastTaskIndex;
       for (let ithTask = 0; ithTask < numberOfTasks; ++ithTask) {
-        // At this stage, all tasks are pending for execution, except one which has started.
-
-        // At this stage, the ithTask has already started its execution.
+        // At this stage, all tasks are pending for execution, except one which has started
+        // (the ithTask).
         expect(lock.isAvailable).toBe(false);
         expect(lock.pendingTasksCount).toBe(expectedBackpressure);
         expect(allTasksCompleted).toBe(false);
@@ -194,6 +194,81 @@ describe('ZeroOverheadLock tests', () => {
 
       expect(lock.isAvailable).toBe(true);
       expect(lock.pendingTasksCount).toBe(0);
+    });
+
+    test(
+      'executeExclusive: should process only one task at a time, and waitForAllExistingTasksToComplete ' +
+      'should resolve only after *all* the currently pending and processed tasks are completed, ' +
+      'with all tasks rejecting', async () => {
+      const lock = new ZeroOverheadLock<void>();
+      const numberOfTasks = 90;
+      const taskRejectCallbacks: PromiseRejectCallbackType[] = [];
+      const executeExclusivePromises: Promise<void>[] = [];
+      let expectedBackpressure: number;
+
+      // Create a burst of tasks, inducing backpressure on the lock.
+      for (let ithTask = 0; ithTask < numberOfTasks; ++ithTask) {
+        const jobPromise = new Promise<void>((_, rej) => taskRejectCallbacks[ithTask] = rej);
+        const job = () => jobPromise;
+
+        // Tasks will be executed in the order in which they were registered.
+        executeExclusivePromises[ithTask] = lock.executeExclusive(job);
+
+        // Trigger the event loop, allowing the lock to evaluate if the current task can begin execution.
+        // Based on this test's configuration, only the first task will be allowed to start.
+        await Promise.race([
+          executeExclusivePromises[ithTask],
+          resolveFast()
+        ]);
+        expect(lock.isAvailable).toBe(false);
+        // Only the first task does not induce backpressure, as it can start immediately.
+        expectedBackpressure = ithTask;
+        expect(lock.pendingTasksCount).toBe(expectedBackpressure);
+      }
+
+      let allTasksCompleted = false;
+      const waitForCompletionOfAllTasksPromise = (async () => {
+        await lock.waitForAllExistingTasksToComplete();
+        allTasksCompleted = true;
+      })();
+
+      const lastTaskIndex = numberOfTasks - 1;
+      expectedBackpressure = lastTaskIndex;
+      for (let ithTask = 0; ithTask < numberOfTasks; ++ithTask) {
+        // At this stage, all tasks are pending for execution, except one which has started
+        // (the ithTask).
+        expect(lock.isAvailable).toBe(false);
+        expect(lock.pendingTasksCount).toBe(expectedBackpressure);
+        expect(allTasksCompleted).toBe(false);
+
+        // Complete the current task.
+        // Note: the order in which tasks start execution corresponds to the order in which
+        // `executeExclusive` was invoked.
+        const rejectCurrentTask = taskRejectCallbacks[ithTask];
+        const currError = new Error(`${ithTask}`);
+        rejectCurrentTask(currError);
+
+        const isLastTask = ithTask === lastTaskIndex;
+        try {
+          if (isLastTask) {
+            await Promise.all([executeExclusivePromises[ithTask], waitForCompletionOfAllTasksPromise]);
+          } else {
+            await Promise.race([executeExclusivePromises[ithTask], waitForCompletionOfAllTasksPromise]);
+          }
+
+          expect(true).toBe(false); // The flow should not reach this point.
+        } catch (err) {
+            expect(err).toBe(currError);
+        }
+
+        if (!isLastTask) {
+          --expectedBackpressure;
+        }
+      }
+
+      expect(lock.isAvailable).toBe(true);
+      expect(lock.pendingTasksCount).toBe(0);
+      expect(allTasksCompleted).toBe(true);
     });
   });
 });

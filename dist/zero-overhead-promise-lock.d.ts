@@ -51,6 +51,16 @@ export declare class ZeroOverheadLock<T> {
     private _currentlyExecutingTask;
     private _pendingTasksCount;
     /**
+     * Availability indicator:
+     * A pending `_waitForAvailability` promise signifies that the lock is currently held.
+     * Its resolve function is used to notify all awaiters of a state change. This approach
+     * has similarities with a condition_variable in C++.
+     *
+     * Notably, this promise never rejects, which is a key distinction from `_currentlyExecutingTask`.
+     */
+    private _waitForAvailablity?;
+    private _notifyTaskCompletion?;
+    /**
      * isAvailable
      *
      * Indicates whether the lock is currently available to immediately begin executing a new task.

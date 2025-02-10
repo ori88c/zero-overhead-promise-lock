@@ -54,6 +54,17 @@ export class ZeroOverheadLock<T> {
   private _pendingTasksCount: number = 0;
   
   /**
+   * Availability indicator:
+   * A pending `_waitForAvailability` promise signifies that the lock is currently held.
+   * Its resolve function is used to notify all awaiters of a state change. This approach
+   * has similarities with a condition_variable in C++.
+   * 
+   * Notably, this promise never rejects, which is a key distinction from `_currentlyExecutingTask`.
+   */
+  private _waitForAvailablity?: Promise<void>;
+  private _notifyTaskCompletion?: (value: void) => void; // Resolving the above.
+
+  /**
    * isAvailable
    * 
    * Indicates whether the lock is currently available to immediately begin executing a new task.
@@ -65,7 +76,7 @@ export class ZeroOverheadLock<T> {
    * @returns `true` if no task is currently executing; otherwise, `false`.
    */	
   public get isAvailable(): boolean {
-    return this._currentlyExecutingTask === undefined;
+    return this._waitForAvailablity === undefined;
   }
 
   /**
@@ -116,11 +127,14 @@ export class ZeroOverheadLock<T> {
    */
   public async executeExclusive(criticalTask: AsyncTask<T>): Promise<T> {
     ++this._pendingTasksCount;
-
-    // Wait for availability.
-    while (this._currentlyExecutingTask) {
-      await this._currentlyExecutingTask;
+  
+    while (this._waitForAvailablity) {
+      await this._waitForAvailablity;
     }
+
+    this._waitForAvailablity = new Promise<void>(
+      res => this._notifyTaskCompletion = res
+    );
 
     --this._pendingTasksCount;
     return this._currentlyExecutingTask = this._handleTaskExecution(criticalTask);
@@ -152,8 +166,8 @@ export class ZeroOverheadLock<T> {
    */
   public async waitForAllExistingTasksToComplete(): Promise<void> {
     // Pending tasks are more prioritized in the Node.js microtasks queue.
-    while (this._currentlyExecutingTask) {
-      await this._currentlyExecutingTask;
+    while (this._waitForAvailablity) {
+      await this._waitForAvailablity;
     }
   }
 
@@ -176,7 +190,10 @@ export class ZeroOverheadLock<T> {
       const result = await criticalTask();
       return result;
     } finally {
+      this._notifyTaskCompletion();
       this._currentlyExecutingTask = undefined;
+      this._waitForAvailablity = undefined;
+      this._notifyTaskCompletion = undefined;
     }
   }
 }

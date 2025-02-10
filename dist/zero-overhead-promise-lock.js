@@ -65,7 +65,7 @@ class ZeroOverheadLock {
      * @returns `true` if no task is currently executing; otherwise, `false`.
      */
     get isAvailable() {
-        return this._currentlyExecutingTask === undefined;
+        return this._waitForAvailablity === undefined;
     }
     /**
      * pendingTasksCount
@@ -114,10 +114,10 @@ class ZeroOverheadLock {
      */
     async executeExclusive(criticalTask) {
         ++this._pendingTasksCount;
-        // Wait for availability.
-        while (this._currentlyExecutingTask) {
-            await this._currentlyExecutingTask;
+        while (this._waitForAvailablity) {
+            await this._waitForAvailablity;
         }
+        this._waitForAvailablity = new Promise(res => this._notifyTaskCompletion = res);
         --this._pendingTasksCount;
         return this._currentlyExecutingTask = this._handleTaskExecution(criticalTask);
     }
@@ -147,8 +147,8 @@ class ZeroOverheadLock {
      */
     async waitForAllExistingTasksToComplete() {
         // Pending tasks are more prioritized in the Node.js microtasks queue.
-        while (this._currentlyExecutingTask) {
-            await this._currentlyExecutingTask;
+        while (this._waitForAvailablity) {
+            await this._waitForAvailablity;
         }
     }
     /**
@@ -171,7 +171,10 @@ class ZeroOverheadLock {
             return result;
         }
         finally {
+            this._notifyTaskCompletion();
             this._currentlyExecutingTask = undefined;
+            this._waitForAvailablity = undefined;
+            this._notifyTaskCompletion = undefined;
         }
     }
 }
