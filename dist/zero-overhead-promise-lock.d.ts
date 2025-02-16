@@ -48,15 +48,12 @@ export type AsyncTask<T> = () => Promise<T>;
  * or maintaining a clear state between unit tests.
  */
 export declare class ZeroOverheadLock<T> {
-    private _currentlyExecutingTask;
     private _pendingTasksCount;
     /**
      * Availability indicator:
      * A pending `_waitForAvailability` promise signifies that the lock is currently held.
      * Its resolve function is used to notify all awaiters of a state change. This approach
      * has similarities with a condition_variable in C++.
-     *
-     * Notably, this promise never rejects, which is a key distinction from `_currentlyExecutingTask`.
      */
     private _waitForAvailablity?;
     private _notifyTaskCompletion?;
@@ -125,6 +122,8 @@ export declare class ZeroOverheadLock<T> {
      * all tasks - whether already executing or queued - are fully processed before proceeding.
      * Examples include application shutdowns (e.g., `onModuleDestroy` in Nest.js applications)
      * or maintaining a clear state between unit tests.
+     * This need is especially relevant in Kubernetes ReplicaSet deployments. When an HPA controller
+     * scales down, pods begin shutting down gracefully.
      *
      * ### Graceful Shutdown
      * The returned promise only accounts for tasks registered at the time this method is called.

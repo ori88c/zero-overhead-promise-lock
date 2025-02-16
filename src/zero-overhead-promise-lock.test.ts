@@ -15,10 +15,23 @@
  * limitations under the License.
  */
 
+/**
+ * General note on testing concurrency in unit tests:
+ * While ideal tests follow a strict Arrange-Act-Assert structure, rigorously testing
+ * concurrency-oriented components often requires validating intermediate states.
+ * Incorrect intermediate states can compromise the entire component's correctness,
+ * making their verification essential.
+ * 
+ * As with everything in engineering, this comes at a cost: verbosity. 
+ * Given that resilience is the primary goal, this is a small price to pay.
+ */
+
 import { ZeroOverheadLock } from './zero-overhead-promise-lock';
 
 type PromiseResolveCallbackType = (value?: unknown) => void;
 type PromiseRejectCallbackType = (err?: Error) => void;
+
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 /**
  * resolveFast
@@ -208,11 +221,11 @@ describe('ZeroOverheadLock tests', () => {
 
       // Create a burst of tasks, inducing backpressure on the lock.
       for (let ithTask = 0; ithTask < numberOfTasks; ++ithTask) {
-        const jobPromise = new Promise<void>((_, rej) => taskRejectCallbacks[ithTask] = rej);
-        const job = () => jobPromise;
+        const taskPromise = new Promise<void>((_, rej) => taskRejectCallbacks[ithTask] = rej);
+        const createTask = () => taskPromise;
 
         // Tasks will be executed in the order in which they were registered.
-        executeExclusivePromises[ithTask] = lock.executeExclusive(job);
+        executeExclusivePromises[ithTask] = lock.executeExclusive(createTask);
 
         // Trigger the event loop, allowing the lock to evaluate if the current task can begin execution.
         // Based on this test's configuration, only the first task will be allowed to start.
@@ -269,6 +282,86 @@ describe('ZeroOverheadLock tests', () => {
       expect(lock.isAvailable).toBe(true);
       expect(lock.pendingTasksCount).toBe(0);
       expect(allTasksCompleted).toBe(true);
+    });
+  });
+
+  describe('Resilience tests: mixed scenarios', () => {
+    test(
+      'executeExclusive: should enforce exclusivity, and waitForAllExistingTasksToComplete should ' +
+      'resolve only after all pending and executing tasks (both successful and failing) finish', async () => {
+      // Arrange.
+      jest.useFakeTimers();
+      const lock = new ZeroOverheadLock<number>();
+      const taskDurationMs = 15 * 1000;
+      const tasksCount = 231 ;
+      const createErrorMessage = (taskNumber: number) => `Task no. ${taskNumber} has failed`;
+      const createFailingTask = async (taskNumber: number): Promise<number> => {
+        await sleep(taskDurationMs);
+        throw new Error(createErrorMessage(taskNumber));
+      };
+      const createSuccessfulTask = async (taskNumber: number): Promise<number> => {
+        await sleep(taskDurationMs);
+        return taskNumber;
+      }
+
+      // Act.
+      const executeExclusivePromises: Promise<number>[] = [];
+      for (let taskNumber = 0; taskNumber < tasksCount; ++taskNumber) {
+        // Even attempts (0-indexed) will fail, while odd attempts will succeed.
+        const createTask = taskNumber % 2 === 0 ?
+          () => createFailingTask(taskNumber) :
+          () => createSuccessfulTask(taskNumber);
+        executeExclusivePromises[taskNumber] = lock.executeExclusive(createTask);
+        expect(lock.pendingTasksCount).toBe(taskNumber);
+        expect(lock.isAvailable).toBe(false);
+      }
+
+      let allTasksCompleted = false;
+      const waitForCompletionOfAllTasksPromise = (async () => {
+        await lock.waitForAllExistingTasksToComplete();
+        allTasksCompleted = true;
+      })();
+
+      // Assert.
+      let expectedBackpressure = tasksCount - 1;
+      for (let taskNumber = 0; taskNumber < tasksCount; ++taskNumber) {
+        expect(lock.pendingTasksCount).toBe(expectedBackpressure);
+        expect(allTasksCompleted).toBe(false);
+        expect(lock.isAvailable).toBe(false);
+
+        const shouldSucceed = taskNumber % 2 === 1;
+        await Promise.allSettled([
+          jest.advanceTimersByTimeAsync(taskDurationMs),
+          executeExclusivePromises[taskNumber]
+        ]);
+
+        const isLastTask = (taskNumber + 1) === tasksCount;
+        if (!isLastTask) {
+          --expectedBackpressure;
+        }
+        expect(lock.pendingTasksCount).toBe(expectedBackpressure);
+
+        // Validate the resolved value or thrown error. Each task should produce
+        // a distinct outcome.
+        if (shouldSucceed) {
+          const result = await executeExclusivePromises[taskNumber];
+          expect(result).toBe(taskNumber);
+        } else {
+          try {
+            await executeExclusivePromises[taskNumber];
+            expect(true).toBe(false); // The flow should not reach this point.
+          } catch (err) {
+            const expectedMessage = createErrorMessage(taskNumber);
+            expect(err.message).toEqual(expectedMessage);
+          }
+        }
+      }
+
+      await waitForCompletionOfAllTasksPromise;
+      expect(allTasksCompleted).toBe(true);
+      expect(lock.isAvailable).toBe(true);
+      expect(lock.pendingTasksCount).toBe(0);
+      jest.useRealTimers();
     });
   });
 });

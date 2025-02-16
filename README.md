@@ -14,7 +14,8 @@ The `ZeroOverheadLock` class implements a modern Promise-lock for Node.js projec
 * [Getter Methods](#getter-methods)
 * [Opt for Atomic Operations When Working Against External Resources](#opt-atomic-operations)
 * [Using Locks as a Semaphore with a Concurrency of 1](#lock-as-semaphore)
-* [Use Case Example: Aggregating Intrusion Detection Event Logs](#use-case-example)
+* [Use Case Example: Aggregating Intrusion Detection Event Logs](#first-use-case-example)
+* [Check-and-Abort Example: Non-Overlapping Recurring Task](#second-use-case-example)
 * [License](#license)
 
 ## Key Features :sparkles:<a id="key-features"></a>
@@ -98,7 +99,7 @@ By combining the read and update into a single atomic operation, the code avoids
 
 In scenarios where performance considerations require controlling access, in-memory locks can be useful. For example, limiting concurrent access to a shared resource may be necessary to reduce contention or meet operational constraints. In such cases, locks are employed as a semaphore with a concurrency limit of 1, ensuring that no more than one operation is executed at a time.
 
-## Use Case Example: Aggregating Intrusion Detection Event Logs :shield:<a id="use-case-example"></a>
+## Use Case Example: Aggregating Intrusion Detection Event Logs :shield:<a id="first-use-case-example"></a>
 
 In an Intrusion Detection System (IDS), it is common to aggregate non-critical alerts (e.g., low-severity anomalies) in memory and flush them to a database in bulk. This approach minimizes the load caused by frequent writes for non-essential data. The bulk writes occur either periodically or whenever the accumulated data reaches a defined threshold.
 
@@ -226,6 +227,53 @@ export class IntrusionDetectionSystem {
 
 * __Improved Throughput__: In-memory accumulation remains active while bulk writes occur, reducing backpressure.
 * __Self-Throttling__: Prevents multiple simultaneous bulk writes while enabling continuous alert ingestion.
+
+## Check-and-Abort Example: Non-Overlapping Recurring Task :repeat_one:<a id="second-use-case-example"></a>
+
+Consider a **non-overlapping** variant of `setInterval`, designed for asynchronous tasks:  
+A scheduler component that manages a single recurring task while **ensuring executions do not overlap**. The scheduler maintains a fixed interval between start times, and if a previous execution is still in progress when a new cycle begins, the new execution is skipped.  
+Additionally, the component supports graceful teardown, meaning it not only stops future executions but also awaits the completion of any ongoing execution before shutting down.
+
+The `isAvailable` lock indicator can be used to determine whether an execution should be skipped:
+```ts
+import { ZeroOverheadLock } from 'zero-overhead-promise-lock';
+
+export class NonOverlappingRecurringTask {
+  private readonly _lock = new ZeroOverheadLock<void>();
+  private _timerHandle?: ReturnType<typeof setInterval>;
+
+  constructor(
+    private readonly _task: () => Promise<void>,
+    private readonly _intervalMs: number
+  ) {}
+
+  public start(): void {
+    if (this._timerHandle !== undefined) {
+      throw new Error('Instance is already running');
+    }
+
+    this._timerHandle = setInterval(
+      (): void => {
+        if (this._lock.isAvailable) {
+          // For simplicity, we assume the task does not throw.
+          this._lock.executeExclusive(this._task);
+        }
+      },
+      this._intervalMs
+    );
+  }
+
+  public async stop(): Promise<void> {
+    if (this._timerHandle === undefined) {
+      return;
+    }
+
+    clearInterval(this._timerHandle);
+    this._timerHandle = undefined;
+    await this._lock.waitForAllExistingTasksToComplete();
+  }
+}
+```
 
 ## License :scroll:<a id="license"></a>
 

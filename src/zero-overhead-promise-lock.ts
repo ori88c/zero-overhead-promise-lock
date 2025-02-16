@@ -50,7 +50,6 @@ export type AsyncTask<T> = () => Promise<T>;
  * or maintaining a clear state between unit tests.
  */
 export class ZeroOverheadLock<T> {
-  private _currentlyExecutingTask: Promise<T> | undefined;
   private _pendingTasksCount: number = 0;
   
   /**
@@ -58,8 +57,6 @@ export class ZeroOverheadLock<T> {
    * A pending `_waitForAvailability` promise signifies that the lock is currently held.
    * Its resolve function is used to notify all awaiters of a state change. This approach
    * has similarities with a condition_variable in C++.
-   * 
-   * Notably, this promise never rejects, which is a key distinction from `_currentlyExecutingTask`.
    */
   private _waitForAvailablity?: Promise<void>;
   private _notifyTaskCompletion?: (value: void) => void; // Resolving the above.
@@ -137,18 +134,20 @@ export class ZeroOverheadLock<T> {
     );
 
     --this._pendingTasksCount;
-    return this._currentlyExecutingTask = this._handleTaskExecution(criticalTask);
+    return this._handleTaskExecution(criticalTask);
   }
 
   /**
    * waitForAllExistingTasksToComplete
-   * 
+   *
    * Waits for the completion of all tasks that are *currently* pending or executing.
    *
    * This method is particularly useful in scenarios where it is essential to ensure that
    * all tasks - whether already executing or queued - are fully processed before proceeding.
    * Examples include application shutdowns (e.g., `onModuleDestroy` in Nest.js applications)
    * or maintaining a clear state between unit tests.
+   * This need is especially relevant in Kubernetes ReplicaSet deployments. When an HPA controller
+   * scales down, pods begin shutting down gracefully.
    *
    * ### Graceful Shutdown
    * The returned promise only accounts for tasks registered at the time this method is called.
@@ -191,7 +190,6 @@ export class ZeroOverheadLock<T> {
       return result;
     } finally {
       this._notifyTaskCompletion();
-      this._currentlyExecutingTask = undefined;
       this._waitForAvailablity = undefined;
       this._notifyTaskCompletion = undefined;
     }

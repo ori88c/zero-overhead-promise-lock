@@ -119,7 +119,7 @@ class ZeroOverheadLock {
         }
         this._waitForAvailablity = new Promise(res => this._notifyTaskCompletion = res);
         --this._pendingTasksCount;
-        return this._currentlyExecutingTask = this._handleTaskExecution(criticalTask);
+        return this._handleTaskExecution(criticalTask);
     }
     /**
      * waitForAllExistingTasksToComplete
@@ -130,6 +130,8 @@ class ZeroOverheadLock {
      * all tasks - whether already executing or queued - are fully processed before proceeding.
      * Examples include application shutdowns (e.g., `onModuleDestroy` in Nest.js applications)
      * or maintaining a clear state between unit tests.
+     * This need is especially relevant in Kubernetes ReplicaSet deployments. When an HPA controller
+     * scales down, pods begin shutting down gracefully.
      *
      * ### Graceful Shutdown
      * The returned promise only accounts for tasks registered at the time this method is called.
@@ -172,7 +174,6 @@ class ZeroOverheadLock {
         }
         finally {
             this._notifyTaskCompletion();
-            this._currentlyExecutingTask = undefined;
             this._waitForAvailablity = undefined;
             this._notifyTaskCompletion = undefined;
         }
