@@ -1,8 +1,10 @@
 <h2 align="middle">zero-overhead-promise-lock</h2>
 
 The `ZeroOverheadLock` class implements a modern Promise-lock for Node.js projects, enabling users to ensure the **mutually exclusive execution** of specified asynchronous tasks. Key features include:
-* __Graceful Teardown__: The ability to await the completion of all currently executing or pending tasks, making it ideal for production applications that require smooth and controlled shutdowns.
-* __"Check-and-Abort" Friendly__: The `isAvailable` getter is designed for "check-and-abort" scenarios, enabling operations to be skipped or aborted if the lock is currently held by another task.
+* __Graceful Teardown :hourglass_flowing_sand:__: The ability to await the completion of all currently executing or pending tasks, making it ideal for production applications that require smooth and controlled shutdowns.
+* __"Check-and-Abort" Friendly :see_no_evil:__: The `isAvailable` getter is designed for "check-and-abort" scenarios, enabling operations to be skipped or aborted if the lock is currently held by another task.
+
+If your use case involves keyed tasks - where you need to ensure the mutually exclusive execution of tasks **associated with the same key** - consider using the keyed variant of this package: [zero-overhead-keyed-promise-lock](https://www.npmjs.com/package/zero-overhead-keyed-promise-lock). Effectively, a keyed lock functions as a temporary FIFO task queue per key. 
 
 ## Table of Contents
 
@@ -12,21 +14,20 @@ The `ZeroOverheadLock` class implements a modern Promise-lock for Node.js projec
 * [Modern API Design](#modern-api-design)
 * [API](#api)
 * [Getter Methods](#getter-methods)
-* [Opt for Atomic Operations When Working Against External Resources](#opt-atomic-operations)
-* [Using Locks as a Semaphore with a Concurrency of 1](#lock-as-semaphore)
 * [Use Case Example: Aggregating Intrusion Detection Event Logs](#first-use-case-example)
 * [Check-and-Abort Example: Non-Overlapping Recurring Task](#second-use-case-example)
+* [Opt for Atomic Operations When Working Against External Resources](#opt-atomic-operations)
 * [License](#license)
 
 ## Key Features :sparkles:<a id="key-features"></a>
 
 - __Mutual Exclusiveness :lock:__: Ensures the mutually exclusive execution of asynchronous tasks, either to prevent potential race conditions caused by tasks spanning across multiple event-loop iterations, or for performance optimization.
 - __Graceful Teardown :hourglass_flowing_sand:__: Await the completion of all currently pending and executing tasks using the `waitForAllExistingTasksToComplete` method. Example use cases include application shutdowns (e.g., `onModuleDestroy` in Nest.js applications) or maintaining a clear state between unit-tests.
-- __Suitable for "check and abort" scenarios__: The `isAvailable` getter indicator enables to skip or abort operations if the lock is currently held by another task.
+- __Suitable for "Check and Abort" scenarios :see_no_evil:__: The `isAvailable` getter indicator enables to skip or abort operations if the lock is currently held by another task.
 - __Backpressure Metric :bar_chart:__: The `pendingTasksCount` getter provides a real-time metric indicating the current backpressure from tasks waiting for the lock to become available. Users can leverage this data to make informed decisions, such as throttling, load balancing, or managing system load. Additionally, this metric can aid in **internal resource management** within a containerized environment. If multiple locks exist - each tied to a unique key - a backpressure value of 0 may indicate that a lock is no longer needed and can be removed temporarily to optimize resource usage.
 - __High Efficiency :gear:__: Leverages the Node.js microtasks queue to serve tasks in FIFO order, eliminating the need for manually managing an explicit queue of pending tasks.
 - __Comprehensive documentation :books:__: The class is thoroughly documented, enabling IDEs to provide helpful tooltips that enhance the coding experience.
-- __Tests :test_tube:__: Fully covered by extensive unit tests.
+- __Thoroughly Tested :test_tube:__: Covered by extensive unit tests to ensure reliability.
 - __No external runtime dependencies__: Only development dependencies are used.
 - __ES2020 Compatibility__: The `tsconfig` target is set to ES2020.
 - TypeScript support.
@@ -40,7 +41,7 @@ In contrast, asynchronous tasks that include at least one `await`, necessarily s
 
 ## Other Use Cases: Beyond Race Condition Prevention :arrow_right:<a id="other-use-cases"></a>
 
-Additionally, locks are sometimes employed **purely for performance optimization**, such as throttling, rather than for preventing race conditions. In such cases, the lock effectively functions as a semaphore with a concurrency of 1.
+Additionally, locks are sometimes employed **purely for performance optimization**, such as throttling, rather than for preventing race conditions. In such cases, the lock effectively functions as a semaphore with a concurrency of 1. For example, limiting concurrent access to a shared resource may be necessary to reduce contention or meet operational constraints.
 
 If your use case requires a concurrency greater than 1, consider using the semaphore variant of this package: [zero-backpressure-semaphore-typescript](https://www.npmjs.com/package/zero-backpressure-semaphore-typescript). While semaphores can emulate locks by setting their concurrency to 1, locks provide a more efficient implementation with reduced overhead.
 
@@ -65,39 +66,6 @@ The `ZeroOverheadLock` class provides the following getter methods to reflect th
 
 * __isAvailable__: Indicates whether the lock is currently available to immediately begin executing a new task. This property is particularly useful in "check and abort" scenarios, where an operation should be **skipped or aborted** if the lock is currently held by another task.
 * __pendingTasksCount__: Returns the number of tasks that are currently pending execution due to the lock being held. These tasks are waiting for the lock to become available before they can proceed.
-
-## Opt for Atomic Operations When Working Against External Resources :key:<a id="opt-atomic-operations"></a>
-
-A common example of using locks is the READ-AND-UPDATE scenario, where concurrent reads of the same value can lead to erroneous updates. While such examples are intuitive, they are often less relevant in modern applications due to advancements in databases and external storage solutions. Modern databases, as well as caches like Redis, provide native support for atomic operations. **Always prioritize leveraging atomicity in external resources** before resorting to in-memory locks.
-
-### Example: Incrementing a Counter in MongoDB
-Consider the following function that increments the number of product views for the last hour in a MongoDB collection. Using two separate operations, this implementation introduces a race condition:
-```ts
-async function updateViews(products: Collection<IProductSchema>, productID: string): Promise<void> {
-  const product = await products.findOne({ _id: productID }); // Step 1: Read
-  if (!product) return;
-
-  const currentViews = product?.hourlyViews ?? 0;
-  await products.updateOne(
-    { _id: productID },
-    { $set: { hourlyViews: currentViews + 1 } } // Step 2: Update
-  );
-}
-```
-The race condition occurs when two or more processes or concurrent tasks (Promises within the same process) execute this function simultaneously, potentially leading to incorrect counter values. This can be mitigated by using MongoDB's atomic `$inc` operator, as shown below:
-```ts
-async function updateViews(products: Collection<IProductSchema>, productID: string): Promise<void> {
-    await products.updateOne(
-        { _id: productID },
-        { $inc: { hourlyViews: 1 } } // Atomic increment
-    );
-}
-```
-By combining the read and update into a single atomic operation, the code avoids the need for locks and improves both reliability and performance.
-
-## Using Locks as a Semaphore with a Concurrency of :one:<a id="lock-as-semaphore"></a>
-
-In scenarios where performance considerations require controlling access, in-memory locks can be useful. For example, limiting concurrent access to a shared resource may be necessary to reduce contention or meet operational constraints. In such cases, locks are employed as a semaphore with a concurrency limit of 1, ensuring that no more than one operation is executed at a time.
 
 ## Use Case Example: Aggregating Intrusion Detection Event Logs :shield:<a id="first-use-case-example"></a>
 
@@ -274,6 +242,35 @@ export class NonOverlappingRecurringTask {
   }
 }
 ```
+
+## Opt for Atomic Operations When Working Against External Resources :key:<a id="opt-atomic-operations"></a>
+
+A common example of using locks is the READ-AND-UPDATE scenario, where concurrent reads of the same value can lead to erroneous updates. While such examples are intuitive, they are often less relevant in modern applications due to advancements in databases and external storage solutions. Modern databases, as well as caches like Redis, provide native support for atomic operations. **Always prioritize leveraging atomicity in external resources** before resorting to in-memory locks.
+
+### Example: Incrementing a Counter in MongoDB
+Consider the following function that increments the number of product views for the last hour in a MongoDB collection. Using two separate operations, this implementation introduces a race condition:
+```ts
+async function updateViews(products: Collection<IProductSchema>, productID: string): Promise<void> {
+  const product = await products.findOne({ _id: productID }); // Step 1: Read
+  if (!product) return;
+
+  const currentViews = product?.hourlyViews ?? 0;
+  await products.updateOne(
+    { _id: productID },
+    { $set: { hourlyViews: currentViews + 1 } } // Step 2: Update
+  );
+}
+```
+The race condition occurs when two or more processes or concurrent tasks (Promises within the same process) execute this function simultaneously, potentially leading to incorrect counter values. This can be mitigated by using MongoDB's atomic `$inc` operator, as shown below:
+```ts
+async function updateViews(products: Collection<IProductSchema>, productID: string): Promise<void> {
+    await products.updateOne(
+        { _id: productID },
+        { $inc: { hourlyViews: 1 } } // Atomic increment
+    );
+}
+```
+By combining the read and update into a single atomic operation, the code avoids the need for locks and improves both reliability and performance.
 
 ## License :scroll:<a id="license"></a>
 
