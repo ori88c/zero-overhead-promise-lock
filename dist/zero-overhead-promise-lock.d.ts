@@ -49,6 +49,7 @@ export type AsyncTask<T> = () => Promise<T>;
  */
 export declare class ZeroOverheadLock<T> {
     private _pendingTasksCount;
+    private _currentExecution?;
     /**
      * Availability indicator:
      * A pending `_waitForAvailability` promise signifies that the lock is currently held.
@@ -69,6 +70,19 @@ export declare class ZeroOverheadLock<T> {
      * @returns `true` if no task is currently executing; otherwise, `false`.
      */
     get isAvailable(): boolean;
+    /**
+     * currentExecution
+     *
+     * Exposes the currently executing task's promise, if one is active.
+     *
+     * ### Smart Reuse
+     * This property is useful in scenarios where launching a duplicate task is wasteful.
+     * Instead of scheduling a new task, consumers can await the ongoing execution to avoid
+     * redundant operations.
+     *
+     * @returns The currently executing task’s promise, or `undefined` if the lock is available.
+     */
+    get currentExecution(): Promise<T> | undefined;
     /**
      * pendingTasksCount
      *

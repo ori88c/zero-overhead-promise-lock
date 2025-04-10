@@ -68,6 +68,21 @@ class ZeroOverheadLock {
         return this._waitForAvailablity === undefined;
     }
     /**
+     * currentExecution
+     *
+     * Exposes the currently executing task's promise, if one is active.
+     *
+     * ### Smart Reuse
+     * This property is useful in scenarios where launching a duplicate task is wasteful.
+     * Instead of scheduling a new task, consumers can await the ongoing execution to avoid
+     * redundant operations.
+     *
+     * @returns The currently executing task’s promise, or `undefined` if the lock is available.
+     */
+    get currentExecution() {
+        return this._currentExecution;
+    }
+    /**
      * pendingTasksCount
      *
      * Returns the number of tasks that are currently pending execution due to the lock being held.
@@ -169,13 +184,15 @@ class ZeroOverheadLock {
      */
     async _handleTaskExecution(criticalTask) {
         try {
-            const result = await criticalTask();
+            this._currentExecution = criticalTask();
+            const result = await this._currentExecution;
             return result;
         }
         finally {
             this._notifyTaskCompletion();
             this._waitForAvailablity = undefined;
             this._notifyTaskCompletion = undefined;
+            this._currentExecution = undefined;
         }
     }
 }

@@ -49,6 +49,7 @@ describe('ZeroOverheadLock tests', () => {
       const lock = new ZeroOverheadLock<number>();
       expect(lock.isAvailable).toBe(true);
       expect(lock.pendingTasksCount).toBe(0);
+      expect(lock.currentExecution).toBe(undefined);
 
       const expectedValue = -295;
       const task = async (): Promise<number> => { return expectedValue; };
@@ -56,6 +57,7 @@ describe('ZeroOverheadLock tests', () => {
       expect(actualValue).toBe(expectedValue);
       expect(lock.isAvailable).toBe(true);
       expect(lock.pendingTasksCount).toBe(0);
+      expect(lock.currentExecution).toBe(undefined);
     });
   
     test('waitForAllExistingTasksToComplete: should resolve immediately if no task currently executes', async () => {
@@ -63,6 +65,7 @@ describe('ZeroOverheadLock tests', () => {
       await lock.waitForAllExistingTasksToComplete();
       expect(lock.isAvailable).toBe(true);
       expect(lock.pendingTasksCount).toBe(0);
+      expect(lock.currentExecution).toBe(undefined);
     });
 
     test(
@@ -89,6 +92,7 @@ describe('ZeroOverheadLock tests', () => {
           resolveFast()
         ]);
         expect(lock.isAvailable).toBe(false);
+        expect(lock.currentExecution).toBeDefined();
         // Only the first task does not induce backpressure, as it can start immediately.
         expectedBackpressure = ithTask;
         expect(lock.pendingTasksCount).toBe(expectedBackpressure);
@@ -106,6 +110,7 @@ describe('ZeroOverheadLock tests', () => {
         // At this stage, all tasks are pending for execution, except one which has started
         // (the ithTask).
         expect(lock.isAvailable).toBe(false);
+        expect(lock.currentExecution).toBeDefined();
         expect(lock.pendingTasksCount).toBe(expectedBackpressure);
         expect(allTasksCompleted).toBe(false);
 
@@ -126,7 +131,37 @@ describe('ZeroOverheadLock tests', () => {
 
       expect(lock.isAvailable).toBe(true);
       expect(lock.pendingTasksCount).toBe(0);
+      expect(lock.currentExecution).toBe(undefined);
       expect(allTasksCompleted).toBe(true);
+    });
+
+    test('currentExecution getter should return the active task promise during execution', async () => {
+      type ResultType = Record<string, number>;
+      const mockResult: ResultType = { a: 1, b: 2 };
+
+      let resolveTask: PromiseResolveCallbackType;
+      const lock = new ZeroOverheadLock<ResultType>();
+
+      // Pre-constructed task promise to verify identity.
+      const taskPromise = new Promise<ResultType>(res => resolveTask = res);
+      const executeExclusivePromise = lock.executeExclusive(() => taskPromise);
+
+      const validationRounds = 24;
+      for (let attempt = 0; attempt < validationRounds; ++attempt) {
+        expect(lock.isAvailable).toBe(false);
+
+        // currentExecution should return the exact Promise instance.
+        expect(lock.currentExecution).toBe(taskPromise);
+        expect(lock.pendingTasksCount).toBe(0);
+      }
+
+      resolveTask(mockResult);
+      const result = await executeExclusivePromise;
+      expect(result).toBe(mockResult);
+
+      expect(lock.pendingTasksCount).toBe(0);
+      expect(lock.isAvailable).toBe(true);
+      expect(lock.currentExecution).toBe(undefined);
     });
 
     /**
@@ -188,7 +223,7 @@ describe('ZeroOverheadLock tests', () => {
       await Promise.all(awaiterPromises);
 
       // The execution order should match the expected order.
-      expect(actualExecutionOrderOfAwaiters).toEqual(expectedExecutionOrder);;
+      expect(actualExecutionOrderOfAwaiters).toEqual(expectedExecutionOrder);
     });
   });
 
@@ -198,7 +233,7 @@ describe('ZeroOverheadLock tests', () => {
       const expectedError = new Error('mock error');
       const task = async (): Promise<string> => { throw expectedError; };
 
-      expect.assertions(3);
+      expect.assertions(4);
       try {
         await lock.executeExclusive(task);
       } catch (err) {
@@ -207,6 +242,7 @@ describe('ZeroOverheadLock tests', () => {
 
       expect(lock.isAvailable).toBe(true);
       expect(lock.pendingTasksCount).toBe(0);
+      expect(lock.currentExecution).toBe(undefined);
     });
 
     test(
@@ -234,6 +270,7 @@ describe('ZeroOverheadLock tests', () => {
           resolveFast()
         ]);
         expect(lock.isAvailable).toBe(false);
+        expect(lock.currentExecution).toBeDefined();
         // Only the first task does not induce backpressure, as it can start immediately.
         expectedBackpressure = ithTask;
         expect(lock.pendingTasksCount).toBe(expectedBackpressure);
@@ -251,6 +288,7 @@ describe('ZeroOverheadLock tests', () => {
         // At this stage, all tasks are pending for execution, except one which has started
         // (the ithTask).
         expect(lock.isAvailable).toBe(false);
+        expect(lock.currentExecution).toBeDefined();
         expect(lock.pendingTasksCount).toBe(expectedBackpressure);
         expect(allTasksCompleted).toBe(false);
 
@@ -281,6 +319,7 @@ describe('ZeroOverheadLock tests', () => {
 
       expect(lock.isAvailable).toBe(true);
       expect(lock.pendingTasksCount).toBe(0);
+      expect(lock.currentExecution).toBe(undefined);
       expect(allTasksCompleted).toBe(true);
     });
   });
@@ -314,6 +353,7 @@ describe('ZeroOverheadLock tests', () => {
         executeExclusivePromises[taskNumber] = lock.executeExclusive(createTask);
         expect(lock.pendingTasksCount).toBe(taskNumber);
         expect(lock.isAvailable).toBe(false);
+        expect(lock.currentExecution).toBeDefined();
       }
 
       let allTasksCompleted = false;
@@ -328,6 +368,7 @@ describe('ZeroOverheadLock tests', () => {
         expect(lock.pendingTasksCount).toBe(expectedBackpressure);
         expect(allTasksCompleted).toBe(false);
         expect(lock.isAvailable).toBe(false);
+        expect(lock.currentExecution).toBeDefined();
 
         const shouldSucceed = taskNumber % 2 === 1;
         await Promise.allSettled([
@@ -361,6 +402,7 @@ describe('ZeroOverheadLock tests', () => {
       expect(allTasksCompleted).toBe(true);
       expect(lock.isAvailable).toBe(true);
       expect(lock.pendingTasksCount).toBe(0);
+      expect(lock.currentExecution).toBe(undefined);
       jest.useRealTimers();
     });
   });
