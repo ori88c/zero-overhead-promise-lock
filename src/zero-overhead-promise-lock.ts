@@ -18,11 +18,9 @@
 export type AsyncTask<T> = () => Promise<T>;
 
 /**
- * ZeroOverheadLock
- * 
  * The `ZeroOverheadLock` class implements a Promise-lock for Node.js projects, enabling users
  * to ensure the mutually exclusive execution of specified tasks.
- * 
+ *
  * ### Race Conditions: How Are They Possible in Single-Threaded JavaScript?
  * In Node.js, synchronous code blocks - those that do *not* contain an `await` keyword - are
  * guaranteed to execute within a single event-loop iteration. These blocks inherently do not
@@ -33,14 +31,14 @@ export type AsyncTask<T> = () => Promise<T>;
  * executions could result in an inconsistent or invalid state.
  * In this regard, JavaScript's single-threaded nature differs inherently from that of
  * single-threaded C code, for example.
- * 
+ *
  * ### Modern API Design
  * Traditional lock APIs require explicit acquire and release steps, adding overhead and
  * responsibility on the user.
  * In contrast, `ZeroOverheadLock` manages task execution, abstracting away these details and
  * reducing user responsibility. The acquire and release steps are handled implicitly by the
  * execution method, reminiscent of the RAII idiom in C++.
- * 
+ *
  * ### Graceful Teardown
  * Task execution promises are tracked by the lock instance, ensuring no dangling promises.
  * This enables graceful teardown via the `waitForAllExistingTasksToComplete` method, in
@@ -63,14 +61,12 @@ export class ZeroOverheadLock<T> {
   private _notifyTaskCompletion?: (value: void) => void; // Resolving the above.
 
   /**
-   * isAvailable
-   * 
    * Indicates whether the lock is currently available to immediately begin executing a new task.
-   * 
+   *
    * ### Check-and-Abort Friendly
-   * This property is particularly useful in "check and abort" scenarios, where an operation 
+   * This property is particularly useful in "check and abort" scenarios, where an operation
    * should be skipped or aborted if the lock is currently held by another task.
-   * 
+   *
    * @returns `true` if no task is currently executing; otherwise, `false`.
    */	
   public get isAvailable(): boolean {
@@ -78,14 +74,28 @@ export class ZeroOverheadLock<T> {
   }
 
   /**
-   * currentExecution
-   *
    * Exposes the currently executing task's promise, if one is active.
    *
    * ### Smart Reuse
    * This property is useful in scenarios where launching a duplicate task is wasteful.
    * Instead of scheduling a new task, consumers can await the ongoing execution to avoid
    * redundant operations.
+   *
+   * ### Usage Example
+   * Suppose a route handler allows clients to fetch an aggregated usage summary
+   * from a third-party service. Since this summary does not change frequently
+   * and the request is expensive, it’s ideal to avoid triggering multiple
+   * simultaneous fetches. Instead, reuse the ongoing execution:
+   * ```ts
+   * async function fetchSummary(): Promise<Summary> {
+   *   const ongoing = summaryFetchLock.getCurrentExecution();
+   *   if (ongoing) {
+   *     return await ongoing;
+   *   } else {
+   *     return await summaryFetchLock.executeExclusive(fetchUsageSummary);
+   *   }
+   * }
+   * ```
    *
    * @returns The currently executing task’s promise, or `undefined` if the lock is available.
    */
@@ -94,17 +104,15 @@ export class ZeroOverheadLock<T> {
   }
 
   /**
-   * pendingTasksCount
-   * 
    * Returns the number of tasks that are currently pending execution due to the lock being held.
    * These tasks are waiting for the lock to become available before they can proceed.
-   * 
+   *
    * ### Monitoring Backpressure
    * This property is useful for monitoring backpressure and making informed decisions, such as
    * dynamically adjusting task submission rates or triggering alerts if the backpressure grows
    * too large. Additionally, this metric can aid in internal resource management within a
    * containerized environment.
-   * 
+   *
    * ### Real-World Example: A Keyed Lock for Batch Processing of Kafka Messages
    * Suppose you are consuming a batch of Kafka messages from the same partition concurrently, but
    * need to ensure sequential processing for messages associated with the same key. For example,
@@ -120,7 +128,7 @@ export class ZeroOverheadLock<T> {
    * When multiple locks exist - each associated with a unique key - the `pendingTasksCount` metric
    * can help optimize resource usage. Specifically, if a lock’s backpressure reaches 0, it may indicate
    * that the lock is no longer needed and can be **removed** from the Keyed Lock to free up resources.
-   * 
+   *
    * @returns The number of tasks currently waiting for execution.
    */
   public get pendingTasksCount(): number {
@@ -128,15 +136,13 @@ export class ZeroOverheadLock<T> {
   }
 
   /**
-   * executeExclusive
-   * 
    * This method executes the given task in a controlled manner, once the lock is available. 
    * It resolves or rejects when the task finishes execution, returning the task's value or
    * propagating any error it may throw.
-   * 
-   * @param criticalTask - The asynchronous task to execute exclusively, ensuring it does not 
-   *                       overlap with any other execution managed by this lock instance.
-   * @throws - Error thrown by the task itself.
+   *
+   * @param criticalTask The asynchronous task to execute exclusively, ensuring it does not
+   *                     overlap with any other execution managed by this lock instance.
+   * @throws Error thrown by the task itself.
    * @returns A promise that resolves with the task's return value or rejects with its error.
    */
   public async executeExclusive(criticalTask: AsyncTask<T>): Promise<T> {
@@ -155,8 +161,6 @@ export class ZeroOverheadLock<T> {
   }
 
   /**
-   * waitForAllExistingTasksToComplete
-   *
    * Waits for the completion of all tasks that are *currently* pending or executing.
    *
    * This method is particularly useful in scenarios where it is essential to ensure that
@@ -188,17 +192,15 @@ export class ZeroOverheadLock<T> {
   }
 
   /**
-   * _handleTaskExecution
-   * 
    * This method manages the execution of a given task in a controlled manner, i.e.,
    * updating the internal state on completion.
-   * 
+   *
    * ### Behavior
    * - Waits for the task to either return a value or throw an error.
    * - Updates the internal state to denote availability once the task is finished.
-   * 
-   * @param criticalTask - The asynchronous task to execute exclusively, ensuring it does not 
-   *                       overlap with any other execution managed by this lock instance.
+   *
+   * @param criticalTask The asynchronous task to execute exclusively, ensuring it does not 
+   *                     overlap with any other execution managed by this lock instance.
    * @returns A promise that resolves with the task's return value or rejects with its error.
    */
   public async _handleTaskExecution(criticalTask: AsyncTask<T>): Promise<T> {

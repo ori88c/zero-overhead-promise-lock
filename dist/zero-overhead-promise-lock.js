@@ -18,8 +18,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ZeroOverheadLock = void 0;
 /**
- * ZeroOverheadLock
- *
  * The `ZeroOverheadLock` class implements a Promise-lock for Node.js projects, enabling users
  * to ensure the mutually exclusive execution of specified tasks.
  *
@@ -54,8 +52,6 @@ class ZeroOverheadLock {
         this._pendingTasksCount = 0;
     }
     /**
-     * isAvailable
-     *
      * Indicates whether the lock is currently available to immediately begin executing a new task.
      *
      * ### Check-and-Abort Friendly
@@ -68,8 +64,6 @@ class ZeroOverheadLock {
         return this._waitForAvailablity === undefined;
     }
     /**
-     * currentExecution
-     *
      * Exposes the currently executing task's promise, if one is active.
      *
      * ### Smart Reuse
@@ -77,14 +71,28 @@ class ZeroOverheadLock {
      * Instead of scheduling a new task, consumers can await the ongoing execution to avoid
      * redundant operations.
      *
+     * ### Usage Example
+     * Suppose a route handler allows clients to fetch an aggregated usage summary
+     * from a third-party service. Since this summary does not change frequently
+     * and the request is expensive, it’s ideal to avoid triggering multiple
+     * simultaneous fetches. Instead, reuse the ongoing execution:
+     * ```ts
+     * async function fetchSummary(): Promise<Summary> {
+     *   const ongoing = summaryFetchLock.getCurrentExecution();
+     *   if (ongoing) {
+     *     return await ongoing;
+     *   } else {
+     *     return await summaryFetchLock.executeExclusive(fetchUsageSummary);
+     *   }
+     * }
+     * ```
+     *
      * @returns The currently executing task’s promise, or `undefined` if the lock is available.
      */
     get currentExecution() {
         return this._currentExecution;
     }
     /**
-     * pendingTasksCount
-     *
      * Returns the number of tasks that are currently pending execution due to the lock being held.
      * These tasks are waiting for the lock to become available before they can proceed.
      *
@@ -116,15 +124,13 @@ class ZeroOverheadLock {
         return this._pendingTasksCount;
     }
     /**
-     * executeExclusive
-     *
      * This method executes the given task in a controlled manner, once the lock is available.
      * It resolves or rejects when the task finishes execution, returning the task's value or
      * propagating any error it may throw.
      *
-     * @param criticalTask - The asynchronous task to execute exclusively, ensuring it does not
-     *                       overlap with any other execution managed by this lock instance.
-     * @throws - Error thrown by the task itself.
+     * @param criticalTask The asynchronous task to execute exclusively, ensuring it does not
+     *                     overlap with any other execution managed by this lock instance.
+     * @throws Error thrown by the task itself.
      * @returns A promise that resolves with the task's return value or rejects with its error.
      */
     async executeExclusive(criticalTask) {
@@ -137,8 +143,6 @@ class ZeroOverheadLock {
         return this._handleTaskExecution(criticalTask);
     }
     /**
-     * waitForAllExistingTasksToComplete
-     *
      * Waits for the completion of all tasks that are *currently* pending or executing.
      *
      * This method is particularly useful in scenarios where it is essential to ensure that
@@ -169,8 +173,6 @@ class ZeroOverheadLock {
         }
     }
     /**
-     * _handleTaskExecution
-     *
      * This method manages the execution of a given task in a controlled manner, i.e.,
      * updating the internal state on completion.
      *
@@ -178,8 +180,8 @@ class ZeroOverheadLock {
      * - Waits for the task to either return a value or throw an error.
      * - Updates the internal state to denote availability once the task is finished.
      *
-     * @param criticalTask - The asynchronous task to execute exclusively, ensuring it does not
-     *                       overlap with any other execution managed by this lock instance.
+     * @param criticalTask The asynchronous task to execute exclusively, ensuring it does not
+     *                     overlap with any other execution managed by this lock instance.
      * @returns A promise that resolves with the task's return value or rejects with its error.
      */
     async _handleTaskExecution(criticalTask) {
